@@ -1,5 +1,5 @@
 package codingtechniques.model;
-//nsnsns
+//comment
 public enum PostType {
     TEXT,
     PHOTO,
