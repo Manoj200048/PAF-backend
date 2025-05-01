@@ -11,12 +11,17 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import codingtechniques.model.Comment;
+import codingtechniques.model.Notification;
+import codingtechniques.model.NotificationType;
 import codingtechniques.model.Post;
+import codingtechniques.model.PostType;
 import codingtechniques.repository.PostRepository;
 import codingtechniques.repository.CommentRepository;
+import codingtechniques.repository.NotificationRepository;
 
 import java.util.List;
 import java.util.Optional;
@@ -32,9 +37,17 @@ public class SocialAppController {
     @Autowired
     private CommentRepository commentRepository;
 
+    @Autowired
+    private NotificationRepository notificationRepository;
+
     @GetMapping("/posts")
     public Iterable<Post> getAllPost() {
         return postRepository.findAll();
+    }
+
+    @GetMapping("/posts/type/{type}")
+    public Iterable<Post> getPostsByType(@PathVariable String type) {
+        return postRepository.findByPostType(PostType.valueOf(type.toUpperCase()));
     }
 
     @PostMapping("/add-post")
@@ -49,8 +62,14 @@ public class SocialAppController {
                 .orElseThrow(() -> new FetchNotFoundException("Post", id));
 
         post.setContent(postDetails.getContent());
-        // Only update fields you want to allow updating
-        // We're not changing user, like or unlike counts here
+
+        // Update media content if provided
+        if (postDetails.getContentUrl() != null) {
+            post.setContentUrl(postDetails.getContentUrl());
+        }
+        if (postDetails.getPostType() != null) {
+            post.setPostType(postDetails.getPostType());
+        }
 
         Post updatedPost = postRepository.save(post);
         return ResponseEntity.ok(updatedPost);
@@ -62,19 +81,42 @@ public class SocialAppController {
         Post post = postRepository.findById(id)
                 .orElseThrow(() -> new FetchNotFoundException("Post", id));
 
+        // Also delete associated notifications
+        notificationRepository.deleteAll(
+                notificationRepository.findByPostId(id)
+        );
+
         postRepository.delete(post);
         return ResponseEntity.ok("Post with id " + id + " deleted successfully");
     }
 
-    @PutMapping("/likes/{id}/{like}")
-    public ResponseEntity<Post> updateLike(@PathVariable Long id, @PathVariable int like) {
+    @PutMapping("/likes/{id}")
+    public ResponseEntity<Post> updateLike(
+            @PathVariable Long id,
+            @RequestParam String username) {
+
         Post post = postRepository.findById(id)
                 .orElseThrow(() -> new FetchNotFoundException("Post", id));
 
-        post.setLike(like + 1);
+        // Check if user already liked this post
+        if (!post.isLikedByUser(username)) {
+            post.setLike(post.getLike() + 1);
+            post.addLikedByUser(username);
+
+            // Create notification for post owner
+            if (!username.equals(post.getUser())) {
+                Notification notification = new Notification(
+                        post.getUser(),  // recipient (post owner)
+                        username,        // sender
+                        post.getId(),    // post ID
+                        null,            // no comment ID
+                        NotificationType.POST_LIKE
+                );
+                notificationRepository.save(notification);
+            }
+        }
 
         Post postUpdated = postRepository.save(post);
-
         return ResponseEntity.ok(postUpdated);
     }
 
@@ -98,14 +140,30 @@ public class SocialAppController {
     }
 
     @PutMapping("/comment/{id}")
-    public ResponseEntity<Post> updateComment(@PathVariable Long id, @RequestBody Comment comment) {
+    public ResponseEntity<Post> updateComment(
+            @PathVariable Long id,
+            @RequestBody Comment comment) {
+
         Post post = postRepository.findById(id)
                 .orElseThrow(() -> new FetchNotFoundException("Post", id));
 
-        post.getComments().add(comment);
+        // Save the comment to get its ID
+        Comment savedComment = commentRepository.save(comment);
+        post.getComments().add(savedComment);
+
+        // Create notification for post owner
+        if (!comment.getUser().equals(post.getUser())) {
+            Notification notification = new Notification(
+                    post.getUser(),      // recipient (post owner)
+                    comment.getUser(),   // sender
+                    post.getId(),        // post ID
+                    savedComment.getId(), // comment ID
+                    NotificationType.POST_COMMENT
+            );
+            notificationRepository.save(notification);
+        }
 
         Post postUpdated = postRepository.save(post);
-
         return ResponseEntity.ok(postUpdated);
     }
 
@@ -152,7 +210,48 @@ public class SocialAppController {
             throw new FetchNotFoundException("Comment", commentId);
         }
 
+        // Delete associated notifications
+        notificationRepository.deleteAll(
+                notificationRepository.findByCommentId(commentId)
+        );
+
         Post updatedPost = postRepository.save(post);
         return ResponseEntity.ok(updatedPost);
+    }
+
+    // Notification endpoints
+    @GetMapping("/notifications/{username}")
+    public ResponseEntity<List<Notification>> getUserNotifications(@PathVariable String username) {
+        List<Notification> notifications = notificationRepository.findByRecipientUserOrderByCreatedAtDesc(username);
+        return ResponseEntity.ok(notifications);
+    }
+
+    @GetMapping("/notifications/{username}/unread")
+    public ResponseEntity<List<Notification>> getUserUnreadNotifications(@PathVariable String username) {
+        List<Notification> notifications = notificationRepository.findByRecipientUserAndReadFalseOrderByCreatedAtDesc(username);
+        return ResponseEntity.ok(notifications);
+    }
+
+    @PutMapping("/notifications/{notificationId}/mark-read")
+    public ResponseEntity<Notification> markNotificationAsRead(@PathVariable Long notificationId) {
+        Notification notification = notificationRepository.findById(notificationId)
+                .orElseThrow(() -> new FetchNotFoundException("Notification", notificationId));
+
+        notification.setRead(true);
+        notification = notificationRepository.save(notification);
+
+        return ResponseEntity.ok(notification);
+    }
+
+    @PutMapping("/notifications/{username}/mark-all-read")
+    public ResponseEntity<String> markAllNotificationsAsRead(@PathVariable String username) {
+        List<Notification> notifications = notificationRepository.findByRecipientUserAndReadFalseOrderByCreatedAtDesc(username);
+
+        for (Notification notification : notifications) {
+            notification.setRead(true);
+            notificationRepository.save(notification);
+        }
+
+        return ResponseEntity.ok("All notifications marked as read for user: " + username);
     }
 }
