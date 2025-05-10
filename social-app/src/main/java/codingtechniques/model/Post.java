@@ -1,19 +1,11 @@
 package codingtechniques.model;
 
-import java.util.List;
+import jakarta.persistence.*;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
-
-import jakarta.persistence.CascadeType;
-import jakarta.persistence.Column;
-import jakarta.persistence.Entity;
-import jakarta.persistence.EnumType;
-import jakarta.persistence.Enumerated;
-import jakarta.persistence.FetchType;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
-import jakarta.persistence.Id;
-import jakarta.persistence.JoinColumn;
-import jakarta.persistence.OneToMany;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 
 @Entity
 public class Post {
@@ -25,14 +17,12 @@ public class Post {
     @Column(name = "users")
     private String user;
 
-    @Column(name = "contents")
+    @Column(name = "contents", columnDefinition = "TEXT")
     private String content;
 
-    // New field for content URL (for photos and videos)
     @Column(name = "content_url")
     private String contentUrl;
 
-    // Enum for post type
     @Enumerated(EnumType.STRING)
     @Column(name = "post_type")
     private PostType postType = PostType.TEXT;
@@ -47,9 +37,24 @@ public class Post {
     @JoinColumn(name = "postId")
     List<Comment> comments = new ArrayList<>();
 
-    // Track users who liked this post
     @Column(name = "liked_by_users")
-    private String likedByUsers = "";  // Stored as comma-separated usernames
+    private String likedByUsers = "";
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "community_id")
+    private Community community;
+
+    // New fields
+    @Column(name = "created_at")
+    private LocalDateTime createdAt = LocalDateTime.now();
+
+    @ElementCollection
+    @CollectionTable(name = "post_tags", joinColumns = @JoinColumn(name = "post_id"))
+    @Column(name = "tag")
+    private Set<String> tags = new HashSet<>();
+
+    @Column(name = "is_pinned")
+    private boolean isPinned = false;
 
     public Post() {
         super();
@@ -65,6 +70,8 @@ public class Post {
         this.unlike = unlike;
         this.comments = comments;
     }
+
+    // Existing getters and setters...
 
     public Long getId() {
         return id;
@@ -138,6 +145,40 @@ public class Post {
         this.likedByUsers = likedByUsers;
     }
 
+    public Community getCommunity() {
+        return community;
+    }
+
+    public void setCommunity(Community community) {
+        this.community = community;
+    }
+
+    // New getters and setters
+    public LocalDateTime getCreatedAt() {
+        return createdAt;
+    }
+
+    public void setCreatedAt(LocalDateTime createdAt) {
+        this.createdAt = createdAt;
+    }
+
+    public Set<String> getTags() {
+        return tags;
+    }
+
+    public void setTags(Set<String> tags) {
+        this.tags = tags;
+    }
+
+    public boolean isPinned() {
+        return isPinned;
+    }
+
+    public void setPinned(boolean isPinned) {
+        this.isPinned = isPinned;
+    }
+
+    // Existing utility methods
     public void addLikedByUser(String username) {
         if (likedByUsers == null || likedByUsers.isEmpty()) {
             likedByUsers = username;
@@ -151,5 +192,14 @@ public class Post {
             return false;
         }
         return likedByUsers.contains(username);
+    }
+
+    // New utility methods
+    public void addTag(String tag) {
+        this.tags.add(tag);
+    }
+
+    public void removeTag(String tag) {
+        this.tags.remove(tag);
     }
 }
