@@ -1,8 +1,10 @@
 package codingtechniques.controller;
 
+import jakarta.validation.Valid;
 import org.hibernate.FetchNotFoundException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
+import org.springframework.validation.BindingResult;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -23,7 +25,9 @@ import codingtechniques.repository.PostRepository;
 import codingtechniques.repository.CommentRepository;
 import codingtechniques.repository.NotificationRepository;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 @RestController
@@ -140,9 +144,17 @@ public class SocialAppController {
     }
 
     @PutMapping("/comment/{id}")
-    public ResponseEntity<Post> updateComment(
+    public ResponseEntity<?> updateComment(
             @PathVariable Long id,
-            @RequestBody Comment comment) {
+            @Valid @RequestBody Comment comment,
+            BindingResult result) {
+
+        if (result.hasErrors()) {
+            Map<String, String> errors = new HashMap<>();
+            result.getFieldErrors().forEach(error ->
+                    errors.put(error.getField(), error.getDefaultMessage()));
+            return ResponseEntity.badRequest().body(errors);
+        }
 
         Post post = postRepository.findById(id)
                 .orElseThrow(() -> new FetchNotFoundException("Post", id));
